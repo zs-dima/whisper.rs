@@ -119,8 +119,11 @@ async fn main() {
 
     if let Some(threads) = config.threads {
         // Check if the number of threads is greater than the number of available CPUs
-        if threads > num_cpus::get() {
-            panic!("Requested more threads than available");
+        let available = std::thread::available_parallelism()
+            .map(|n| n.get())
+            .unwrap_or(1); // fallback to 1 if error
+        if threads > available {
+            panic!("Requested more threads ({threads}) than available ({available})");
         }
         tracing::info!("Using {} threads for Whisper", threads);
     }

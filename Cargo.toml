@@ -17,7 +17,6 @@ path = "bin/basic_vad.rs"
 # Core
 futures = "0.3.31"
 tracing = "0.1.41"
-num_cpus = "1.16.0"
 
 # Network
 tokio = { version = "1.44.2", features = ["full"] }
