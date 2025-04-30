@@ -1,0 +1,52 @@
+{
+    // Use IntelliSense to learn about possible attributes.
+    // Hover to view descriptions of existing attributes.
+    // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
+    "version": "0.2.0",
+    "configurations": [
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'whisper-server'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=whisper-server",
+                    "--package=whisper"
+                ],
+                "filter": {
+                    "name": "whisper-server",
+                    "kind": "bin"
+                }
+            },
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {
+                "RUST_BACKTRACE": "full"
+            },
+            "cwd": "${workspaceFolder}"
+        },
+        {
+            "type": "lldb",
+            "request": "launch",
+            "name": "Debug 'basic-vad'",
+            "cargo": {
+                "args": [
+                    "build",
+                    "--bin=basic-vad",
+                    "--package=whisper"
+                ],
+                "filter": {
+                    "name": "basic-vad",
+                    "kind": "bin"
+                }
+            },
+            "console": "integratedTerminal",
+            "args": [],
+            "env": {
+                "RUST_BACKTRACE": "full"
+            },
+            "cwd": "${workspaceFolder}"
+        }
+    ]
+}

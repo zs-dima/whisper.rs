@@ -1,0 +1,54 @@
+[package]
+name = "whisper"
+description = "Rust solutions for learning"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[[bin]]
+name = "whisper-server"
+path = "bin/main.rs"
+
+[[bin]]
+name = "basic-vad"
+path = "bin/basic_vad.rs"
+
+[dependencies]
+# Core
+futures = "0.3.31"
+tracing = "0.1.41"
+
+# Network
+tokio = { version = "1.44.2", features = ["full"] }
+axum = { version = "0.8.4", features = ["ws"] }
+
+# Serialization
+serde = { version = "1.0.219", features = ["derive"] }
+serde_json = "1.0.140"
+
+# Middlewares
+tower-http = { version = "0.6.2", features = ["timeout", "trace"] }
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Whisper
+whisper-rs = { version = "0.14.2", features = ["default", "raw-api"] }
+# whisper-rs-sys = "0.12.1"
+
+# VAD
+# silero-vad-rs = "0.1.2"
+# ndarray = "0.15.6"
+# rayon = "1.7.1"                                             # TODO remove For parallel processing
+
+[dev-dependencies]
+criterion = "0.5"
+
+[profile.dev]
+opt-level = 0
+
+# cargo run --release
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "abort"
+strip = true
