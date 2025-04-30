@@ -117,11 +117,13 @@ async fn main() {
         .expect("Failed to create WhisperContext");
     tracing::info!("Whisper model {} loaded", config.model_path);
 
-    // Set the number of threads to use.
-    // if config.threads > std::thread::hardware_concurrency() {
-    //     panic!("Requested more threads than available");
-    // }
-    tracing::info!("Using {} threads for Whisper", config.threads.unwrap_or(1)); // TODO: use Option
+    if let Some(threads) = config.threads {
+        // Check if the number of threads is greater than the number of available CPUs
+        if threads > num_cpus::get() {
+            panic!("Requested more threads than available");
+        }
+        tracing::info!("Using {} threads for Whisper", threads);
+    }
 
     // Create a params object for running the Whisper model.
     let whisper_params = WhisperConfig {
