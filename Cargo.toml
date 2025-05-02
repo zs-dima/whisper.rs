@@ -9,9 +9,9 @@ license = "MIT"
 name = "whisper-server"
 path = "bin/main.rs"
 
-[[bin]]
-name = "basic-vad"
-path = "bin/basic_vad.rs"
+# [[bin]]
+# name = "basic-vad"
+# path = "bin/basic_vad.rs"
 
 [dependencies]
 # Core
@@ -21,6 +21,7 @@ tracing = "0.1.41"
 # Network
 tokio = { version = "1.44.2", features = ["full"] }
 axum = { version = "0.8.4", features = ["ws"] }
+webrtc = "0.12.0"
 
 # Serialization
 serde = { version = "1.0.219", features = ["derive"] }
