@@ -26,7 +26,7 @@ COPY bin /app/bin
 RUN cargo build --release
 
 # 2. Runtime stage: minimal image for running
-FROM --platform=$BUILDPLATFORM ubuntu:25.04 AS runtime
+FROM --platform=$TARGETPLATFORM ubuntu:25.04 AS runtime
 
 # (Optionally install libffi for whisper-rs if required at runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
