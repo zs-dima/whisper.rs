@@ -53,6 +53,7 @@ jobs:
     - uses: docker/build-push-action@v5
       with:
         context: .
+        file: deploy/Dockerfile
         platforms: linux/amd64,linux/arm64        # multi-arch build :contentReference[oaicite:4]{index=4}
         push: true
         tags: ${{ steps.meta.outputs.tags }}
