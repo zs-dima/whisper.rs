@@ -80,7 +80,7 @@ Configuration is managed via environment variables. Defaults are provided for al
 | `PORT`               | Server port                        | `3030`                         |
 | `API_KEY`            | API key for WebSocket auth         |                                |
 | `WHISPER_MODEL_NAME` | Path to Whisper model file nme     | `ggml-base.en-q5_1.bin`        |
-| `WHISPER_MODEL_URL`  | URL to Whisper a model             |  [whisper.cpp models](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/$WHISPER_MODEL_NAME?download=true)          |
+| `WHISPER_MODEL_URL`  | URL to Whisper a model             |  [ggml-base.en-q5_1.bin](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin?download=true)          |
 | `WHISPER_THREADS`    | Number of inference threads        | `min(4, num_cpus)`             |
 | `SAMPLE_THRESHOLD`   | Min samples before flush (silence) | `64000` (4s at 16kHz)          |
 
