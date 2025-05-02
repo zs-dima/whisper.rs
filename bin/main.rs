@@ -1,7 +1,7 @@
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Query, State};
 use whisper::config::service_params::ServiceParams;
-use whisper::config::whisper_config::WhisperConfig;
+use whisper::whisper::whisper_config::WhisperConfig;
 use whisper::{config::service_config::ServiceConfig, service::whisper_service::WhisperService};
 
 use axum::{Router, routing::get, serve};
@@ -39,9 +39,10 @@ async fn main() {
 
     // Create Whisper context
     // TODO: Default::default() from config
-    let whisper_ctx = WhisperContext::new_with_params(&config.model_path, Default::default())
+    let model_path = format!("models/{}", config.model_name);
+    let whisper_ctx = WhisperContext::new_with_params(&model_path, Default::default())
         .expect("Failed to create WhisperContext");
-    tracing::info!("Whisper model {} loaded", config.model_path);
+    tracing::info!("Whisper model {} loaded", config.model_name);
 
     // Create a params object for running the Whisper model.
     let whisper_cfg = WhisperConfig {

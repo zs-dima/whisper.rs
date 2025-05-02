@@ -18,6 +18,7 @@ pub struct SharedState {
     pub last_sentence_end: AtomicU64, // absolute index in samples
     pub next_seq: AtomicUsize,
     pub active_jobs: AtomicUsize,
+    pub flush_seq: AtomicUsize,
 }
 
 impl SharedState {
@@ -26,6 +27,7 @@ impl SharedState {
             last_sentence_end: AtomicU64::new(0),
             next_seq: AtomicUsize::new(0),
             active_jobs: AtomicUsize::new(0),
+            flush_seq: AtomicUsize::new(1),
         }
     }
 }
@@ -37,6 +39,7 @@ impl SharedState {
 pub struct CppCallbackData {
     pub boundary: Arc<SharedState>,
     pub out: mpsc::Sender<Transcript>,
+    pub flush_seq: usize,
 }
 
 #[derive(Debug)]

@@ -2,7 +2,7 @@ use std::time::Duration;
 
 use whisper_rs::WhisperContext;
 
-use super::whisper_config::WhisperConfig;
+use crate::whisper::whisper_config::WhisperConfig;
 
 pub struct ServiceParams {
     pub whisper_ctx: WhisperContext,

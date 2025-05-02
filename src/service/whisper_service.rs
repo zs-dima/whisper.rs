@@ -1,5 +1,8 @@
 use crate::{
-    config::service_params::ServiceParams, service::shared_state::shared_state::Transcript,
+    config::service_params::ServiceParams,
+    service::shared_state::shared_state::Transcript,
+    vad::energy_vad::{EnergyVad, LOOKBACK_SAMPLES, SAMPLE_RATE},
+    whisper::{whisper_callback::WhisperCallback, whisper_helper::WhisperHelper},
 };
 
 use axum::{
@@ -14,28 +17,22 @@ use futures::{SinkExt, StreamExt};
 use serde_json::json;
 use std::{
     collections::{HashMap, VecDeque},
-    ffi::{CStr, c_void},
     pin::Pin,
     sync::{Arc, atomic::Ordering},
 };
 use tokio::{
     sync::{
         Semaphore,
-        mpsc::{self, error::TrySendError},
+        mpsc::{self},
     },
     time::{Instant, Sleep, sleep_until},
 };
-use whisper_rs::whisper_rs_sys;
 
-use super::shared_state::shared_state::{CppCallbackData, SharedState};
+use super::shared_state::shared_state::SharedState;
 
-const SAMPLE_RATE: usize = 16_000; // Hz
-const LOOKBACK_MS: usize = 200; // look at last 200 ms
-const LOOKBACK_SAMPLES: usize = SAMPLE_RATE * LOOKBACK_MS / 1_000; // 4 800
-const VAD_THOLD: f32 = 0.35; // energy_last < 0.35 × energy_all ⇒ silence
 const MAX_BUFFER_MS: usize = 8_000 * 3; // hard cap to avoid RAM blow‑up
 const MAX_BUFFER_SAMPLES: usize = SAMPLE_RATE * MAX_BUFFER_MS / 1_000; // 384 000
-const MAX_PAR_THREADS: usize = 4;
+const MAX_SERVICE_THREADS: usize = 4;
 
 pub struct WhisperService {
     params: Arc<ServiceParams>,
@@ -45,7 +42,7 @@ impl WhisperService {
     pub fn new(params: Arc<ServiceParams>) -> Self {
         Self {
             params,
-            semaphore: Arc::new(Semaphore::new(MAX_PAR_THREADS)),
+            semaphore: Arc::new(Semaphore::new(MAX_SERVICE_THREADS)),
         }
     }
 
@@ -90,12 +87,10 @@ impl WhisperService {
         let shared_r = shared.clone();
         let reader = tokio::spawn(async move {
             let mut ring: VecDeque<f32> = VecDeque::with_capacity(MAX_BUFFER_SAMPLES);
-            // running energy metrics
-            let mut energy_total: f64 = 0.0; // Σ|x|
-            let mut energy_tail: f64 = 0.0; // Σ|x| over trailing window
+            let mut vad = EnergyVad::new(shared_r.clone());
             let threshold = params_r.sample_threshold; // 64 000 (4s) default 
 
-            // ── idle-flush timer ──────────────────────────────────────────────────────
+            // idle-flush timer
             let mut deadline = Instant::now() + params_r.idle_flush;
             let mut sleep: Pin<Box<Sleep>> = Box::pin(sleep_until(deadline));
 
@@ -106,37 +101,35 @@ impl WhisperService {
                             msg = receiver.next() => {
                     match msg {
                         Some(Ok(Message::Binary(buf))) => { // Message::Binary(buf) => {
+                            // Check and exttend the buffer size in advance
+                            let chunk_count = buf.len() / 4;
+                            if ring.capacity() < ring.len() + chunk_count {
+                                ring.reserve(chunk_count);
+                            }
+
                             for chunk in buf.chunks_exact(4) {
-                                let s = f32::from_le_bytes(chunk.try_into().unwrap());
-                                let abs = s.abs() as f64;
+                                let s = f32::from_le_bytes(chunk.try_into().unwrap_or([0.0f32.to_le_bytes()[0]; 4]));
+
+                                // Get old sample energy for VAD
+                                let old_sample_energy = if ring.len() >= LOOKBACK_SAMPLES {
+                                    let idx = ring.len() - LOOKBACK_SAMPLES;
+                                    Some(ring[idx].abs() as f64)
+                                } else {
+                                    None
+                                };
+
                                 ring.push_back(s);
-                                energy_total += abs;
-                                energy_tail += abs;
 
-                                // maintain the LOOKBACK window sum
-                                if ring.len() > LOOKBACK_SAMPLES {
-                                    let idx = ring.len() - LOOKBACK_SAMPLES - 1;
-                                    energy_tail -= ring[idx].abs() as f64;
-                                }
+                                // Update energy VAD
+                                vad.process_sample(s, ring.len(), old_sample_energy);
                             }
 
-                            // energy‑ratio VAD
-                            if ring.len() >= LOOKBACK_SAMPLES {
-                                let energy_all = (energy_total / ring.len() as f64) as f32;
-                                let energy_last = (energy_tail / LOOKBACK_SAMPLES as f64) as f32;
-                                if energy_last < VAD_THOLD * energy_all {
-                                    shared_r
-                                        .last_sentence_end
-                                        .fetch_max(ring.len() as u64, Ordering::Release);
-                                }
-                            }
-
-                            // decide if we should flush
+                            // Check VAD silence boundary
                             let cb_idx = shared_r.last_sentence_end.swap(0, Ordering::Acquire) as usize;
                             let boundary = if cb_idx >= threshold { cb_idx } else { 0 };
                             if boundary > 0 {
-                                Self::flush_chunk(
-                                    boundary, &mut ring, &tx, &sem_r, &params_r, &shared_r,
+                                Self::flush(
+                                    boundary, &mut ring, &tx, &sem_r, &params_r, &shared_r,false,
                                 )
                                 .await;
                             }
@@ -146,13 +139,14 @@ impl WhisperService {
                             let ring_len = ring.len();
                             if ring_len >= MAX_BUFFER_SAMPLES {
                                 tracing::warn!("audio spill-over {} - force flush", ring_len);
-                                Self::flush_chunk(
+                                Self::flush(
                                     ring_len,
                                     &mut ring,
                                     &tx,
                                     &sem_r,
                                     &params_r,
                                     &shared_r,
+                                    false,
                                 )
                                 .await;
                             }
@@ -168,7 +162,7 @@ impl WhisperService {
                 }, _ = &mut sleep => {
                           // idle flush (no size threshold)
                           if !ring.is_empty() {
-                              Self::flush(ring.len(), &mut ring, &tx, &sem_r, &params_r, &shared_r).await;
+                              Self::flush(ring.len(), &mut ring, &tx, &sem_r, &params_r, &shared_r, true).await;
                           }
                           deadline = Instant::now() + params_r.idle_flush;
                           sleep.as_mut().reset(deadline);
@@ -177,7 +171,16 @@ impl WhisperService {
 
             // final flush
             if !ring.is_empty() {
-                Self::flush_chunk(ring.len(), &mut ring, &tx, &sem_r, &params_r, &shared_r).await;
+                Self::flush(
+                    ring.len(),
+                    &mut ring,
+                    &tx,
+                    &sem_r,
+                    &params_r,
+                    &shared_r,
+                    false,
+                )
+                .await;
             }
         });
 
@@ -185,10 +188,11 @@ impl WhisperService {
         tracing::info!("session ended");
     }
 
+    /// Process audio samples from the ring buffer
     ///
-    /// Flush + Whisper helpers --------------------------------------------------------
-    ///
-
+    /// * `count` - Number of samples to process
+    /// * `ring` - Ring buffer with audio samples
+    /// * `track_jobs` - Whether to track active jobs count (for graceful shutdown)
     async fn flush(
         count: usize,
         ring: &mut VecDeque<f32>,
@@ -196,118 +200,72 @@ impl WhisperService {
         sem: &Arc<Semaphore>,
         params: &Arc<ServiceParams>,
         shared: &Arc<SharedState>,
+        track_jobs: bool,
     ) {
-        let samples: Vec<f32> = ring.drain(..count).collect();
-        shared.active_jobs.fetch_add(1, Ordering::AcqRel);
+        // Prepare ring buffer for flushing
+        let mut samples = Vec::with_capacity(count);
+        if count <= ring.len() {
+            samples.extend(ring.drain(..count));
+        } else {
+            tracing::warn!("Attempted to flush more samples than available");
+            samples.extend(ring.drain(..));
+        }
+
+        // Track active jobs if requested
+        if track_jobs {
+            shared.active_jobs.fetch_add(1, Ordering::AcqRel);
+        }
+        let flush_seq = shared.flush_seq.fetch_add(1, Ordering::AcqRel);
+
         let tx_cl = tx.clone();
         let params_cl = params.clone();
         let shared_cl = shared.clone();
+
         match sem.clone().acquire_owned().await {
             Ok(permit) => {
                 tokio::spawn(async move {
                     let _g = permit;
-                    Self::run_whisper(samples, params_cl, shared_cl, tx_cl).await;
+                    Self::run_whisper(samples, params_cl, shared_cl, tx_cl, flush_seq).await;
                 });
             }
             Err(_) => {
-                shared.active_jobs.fetch_sub(1, Ordering::AcqRel);
+                if track_jobs {
+                    shared.active_jobs.fetch_sub(1, Ordering::AcqRel);
+                } else {
+                    tracing::warn!("semaphore closed – drop chunk");
+                }
             }
         }
     }
 
-    async fn flush_chunk(
-        count: usize,
-        ring: &mut VecDeque<f32>,
-        tx: &mpsc::Sender<Transcript>,
-        sem: &Arc<Semaphore>,
-        params: &Arc<ServiceParams>,
-        shared: &Arc<SharedState>,
-    ) {
-        let samples: Vec<f32> = ring.drain(..count).collect();
-        let tx_cl = tx.clone();
-        let params_cl = params.clone();
-        let shared_cl = shared.clone();
-        match sem.clone().acquire_owned().await {
-            Ok(permit) => {
-                tokio::spawn(async move {
-                    let _g = permit;
-                    Self::run_whisper(samples, params_cl, shared_cl, tx_cl).await;
-                });
-            }
-            Err(_) => tracing::warn!("semaphore closed – drop chunk"),
-        }
-    }
-
+    /// Run the Whisper transcription
     async fn run_whisper(
         samples: Vec<f32>,
         params: Arc<ServiceParams>,
         shared: Arc<SharedState>,
         out: mpsc::Sender<Transcript>,
+        flush_seq: usize,
     ) {
         tracing::info!(">>> transcribing {} samples", samples.len());
         tokio::task::spawn_blocking(move || {
             let mut fp = params.whisper_cfg.to_full_params();
-            let data = Box::new(CppCallbackData {
-                boundary: shared,
-                out,
-            });
-            let ptr = Box::into_raw(data) as *mut c_void;
-            unsafe {
-                fp.set_new_segment_callback(Some(Self::callback));
-                fp.set_new_segment_callback_user_data(ptr);
-            }
-            let mut st = params.whisper_ctx.create_state().expect("state alloc");
-            st.full(fp, &samples).ok();
-            unsafe {
-                let data: Box<CppCallbackData> = Box::from_raw(ptr as *mut CppCallbackData);
-                data.boundary.active_jobs.fetch_sub(1, Ordering::AcqRel);
+
+            let callback = WhisperCallback::new(shared.clone(), out, flush_seq);
+            callback.setup_callback(&mut fp, WhisperHelper::whisper_callback);
+
+            match params.whisper_ctx.create_state() {
+                Ok(mut st) => {
+                    // Execute transcription and check result
+                    if let Err(e) = st.full(fp, &samples) {
+                        tracing::error!("Whisper processing error: {:?}", e);
+                    }
+                }
+                Err(e) => {
+                    tracing::error!("Failed to create Whisper state: {:?}", e);
+                }
             }
         })
         .await
         .ok();
-    }
-
-    ///
-    /// C callback – unchanged from old version but with global seq
-    ///
-    unsafe extern "C" fn callback(
-        _: *mut whisper_rs_sys::whisper_context,
-        st: *mut whisper_rs_sys::whisper_state,
-        _: i32,
-        user: *mut c_void,
-    ) {
-        if user.is_null() {
-            return;
-        }
-        let data = unsafe { &*(user as *const CppCallbackData) };
-        let n = unsafe { whisper_rs_sys::whisper_full_n_segments_from_state(st) } - 1;
-        let txt_ptr = unsafe { whisper_rs_sys::whisper_full_get_segment_text_from_state(st, n) };
-        if txt_ptr.is_null() {
-            return;
-        }
-        if let Ok(txt) = unsafe { CStr::from_ptr(txt_ptr) }.to_str() {
-            let seq = data.boundary.next_seq.fetch_add(1, Ordering::Relaxed);
-            loop {
-                match data.out.try_send(Transcript {
-                    seq,
-                    text: txt.to_owned(),
-                }) {
-                    Ok(()) => break,
-                    Err(TrySendError::Full(t)) => {
-                        // Drop oldest instead of spinning forever:
-                        let _ = data.out.try_send(t); // overwrite
-                        break;
-                    }
-                    Err(TrySendError::Closed(_)) => return, // client is gone
-                }
-            }
-            if txt.trim_end().ends_with(['.', '!', '?']) {
-                let t1 =
-                    unsafe { whisper_rs_sys::whisper_full_get_segment_t1_from_state(st, n) } as u64;
-                data.boundary
-                    .last_sentence_end
-                    .store(t1 * 16, Ordering::Release); // 1 ms = 16 samples
-            }
-        }
     }
 }
