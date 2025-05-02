@@ -10,7 +10,7 @@ mkdir -p "$MODEL_DIR"
 
 if [ ! -f "$MODEL_PATH" ]; then
     echo "Model not found at $MODEL_PATH. Downloading from $MODEL_URL..."
-    curl -L --output "$MODEL_PATH" "$MODEL_URL"
+    wget -O "$MODEL_PATH" "$MODEL_URL"
 else
     echo "Model found at $MODEL_PATH."
 fi
