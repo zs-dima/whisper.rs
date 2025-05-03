@@ -83,6 +83,17 @@ Configuration is managed via environment variables. Defaults are provided for al
 | `WHISPER_MODEL_URL`  | URL to Whisper a model             |  [ggml-base.en-q5_1.bin](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin?download=true)          |
 | `WHISPER_THREADS`    | Number of inference threads        | `min(4, num_cpus)`             |
 | `SAMPLE_THRESHOLD`   | Min samples before flush (silence) | `64000` (4s at 16kHz)          |
+| `MAX_BUFFER_MS`      | Max audio buffer size in ms before forced flush | `24000` (24s)         |
+| `MAX_SERVICE_THREADS`| Max concurrent Whisper jobs        | `4`                            |
+| `LOOKBACK_MS`        | VAD lookback window in ms          | `200`                          |
+| `VAD_THOLD`          | VAD silence threshold (0.0–1.0)    | `0.35`                         |
+
+Descriptions:
+- `SAMPLE_THRESHOLD`: Minimum number of audio samples chunk for transcription. Minimum is 1 second (16000 samples at 16kHz).
+- `MAX_BUFFER_MS`: Maximum audio buffer size in milliseconds before a forced flush occurs to prevent memory overuse.
+- `MAX_SERVICE_THREADS`: Maximum number of concurrent Whisper inference jobs allowed (limits CPU usage).
+- `LOOKBACK_MS`: The window size in milliseconds for the energy-based VAD to determine recent speech activity.
+- `VAD_THOLD`: The threshold ratio (0.0–1.0) for VAD to detect silence; lower values make VAD more sensitive to silence.
 
 Example:
 ```sh
@@ -131,6 +142,8 @@ The server will start and listen on the configured port (default: 3030).
    ```json
    {"text": "recognized transcript", "seq": 1}
    ```
+   - `text`: Recognized text from the audio stream.
+   - `seq`: Sequence number of the message.   
 
 ---
 

@@ -1,7 +1,7 @@
 use crate::{
     config::service_params::ServiceParams,
     service::shared_state::shared_state::Transcript,
-    vad::energy_vad::{EnergyVad, LOOKBACK_SAMPLES, SAMPLE_RATE},
+    vad::energy_vad::{EnergyVad, SAMPLE_RATE},
     whisper::{whisper_callback::WhisperCallback, whisper_helper::WhisperHelper},
 };
 
@@ -30,19 +30,22 @@ use tokio::{
 
 use super::shared_state::shared_state::SharedState;
 
-const MAX_BUFFER_MS: usize = 8_000 * 3; // hard cap to avoid RAM blow‑up
-const MAX_BUFFER_SAMPLES: usize = SAMPLE_RATE * MAX_BUFFER_MS / 1_000; // 384 000
-const MAX_SERVICE_THREADS: usize = 4;
-
 pub struct WhisperService {
     params: Arc<ServiceParams>,
     semaphore: Arc<Semaphore>,
+    lookback_samples: usize,
+    max_buffer_samples: usize,
 }
 impl WhisperService {
     pub fn new(params: Arc<ServiceParams>) -> Self {
+        let max_threads = params.max_service_threads;
+        let lookback_samples = SAMPLE_RATE * params.lookback_ms / 1_000;
+        let max_buffer_samples = SAMPLE_RATE * params.max_buffer_ms / 1_000;
         Self {
-            params,
-            semaphore: Arc::new(Semaphore::new(MAX_SERVICE_THREADS)),
+            params: params.clone(),
+            semaphore: Arc::new(Semaphore::new(max_threads)),
+            lookback_samples,
+            max_buffer_samples,
         }
     }
 
@@ -66,6 +69,10 @@ impl WhisperService {
         let shared = Arc::new(SharedState::new());
         let (tx, mut rx) = tokio::sync::mpsc::channel::<Transcript>(512);
 
+        let vad_thold = self.params.vad_thold;
+        let lookback_samples = self.lookback_samples;
+        let max_buffer_samples = self.max_buffer_samples;
+
         // writer – single task
         let writer = tokio::spawn(async move {
             while let Some(t) = rx.recv().await {
@@ -86,8 +93,8 @@ impl WhisperService {
         let sem_r = self.semaphore.clone();
         let shared_r = shared.clone();
         let reader = tokio::spawn(async move {
-            let mut ring: VecDeque<f32> = VecDeque::with_capacity(MAX_BUFFER_SAMPLES);
-            let mut vad = EnergyVad::new(shared_r.clone());
+            let mut ring: VecDeque<f32> = VecDeque::with_capacity(max_buffer_samples);
+            let mut vad = EnergyVad::new(shared_r.clone(), lookback_samples, vad_thold);
             let threshold = params_r.sample_threshold; // 64 000 (4s) default 
 
             // idle-flush timer
@@ -111,8 +118,8 @@ impl WhisperService {
                                 let s = f32::from_le_bytes(chunk.try_into().unwrap_or([0.0f32.to_le_bytes()[0]; 4]));
 
                                 // Get old sample energy for VAD
-                                let old_sample_energy = if ring.len() >= LOOKBACK_SAMPLES {
-                                    let idx = ring.len() - LOOKBACK_SAMPLES;
+                                let old_sample_energy = if ring.len() >= lookback_samples {
+                                    let idx = ring.len() - lookback_samples;
                                     Some(ring[idx].abs() as f64)
                                 } else {
                                     None
@@ -137,7 +144,7 @@ impl WhisperService {
                             // TODO env var
                             // overflow guard
                             let ring_len = ring.len();
-                            if ring_len >= MAX_BUFFER_SAMPLES {
+                            if ring_len >= max_buffer_samples {
                                 tracing::warn!("audio spill-over {} - force flush", ring_len);
                                 Self::flush(
                                     ring_len,

@@ -10,4 +10,8 @@ pub struct ServiceParams {
     pub sample_threshold: usize,
     pub api_key: String,
     pub idle_flush: Duration,
+    pub max_buffer_ms: usize,
+    pub max_service_threads: usize,
+    pub lookback_ms: usize,
+    pub vad_thold: f32,
 }

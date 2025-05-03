@@ -4,9 +4,6 @@ use crate::service::shared_state::shared_state::SharedState;
 
 /// Constants for Voice Activity Detection
 pub const SAMPLE_RATE: usize = 16_000; // Hz
-pub const LOOKBACK_MS: usize = 200; // look at last 200 ms
-pub const LOOKBACK_SAMPLES: usize = SAMPLE_RATE * LOOKBACK_MS / 1_000; // 4,800
-pub const VAD_THOLD: f32 = 0.35; // energy_last < 0.35 × energy_all ⇒ silence
 
 /// Voice Activity Detector using energy-based algorithm
 pub struct EnergyVad {
@@ -16,14 +13,18 @@ pub struct EnergyVad {
     energy_tail: f64,
     /// Shared state for marking boundaries
     shared: Arc<SharedState>,
+    vad_thold: f32,
+    lookback_samples: usize,
 }
 
 impl EnergyVad {
-    pub fn new(shared: Arc<SharedState>) -> Self {
+    pub fn new(shared: Arc<SharedState>, lookback_samples: usize, vad_thold: f32) -> Self {
         Self {
             energy_total: 0.0,
             energy_tail: 0.0,
             shared,
+            vad_thold,
+            lookback_samples,
         }
     }
 
@@ -45,12 +46,12 @@ impl EnergyVad {
         }
 
         // Only perform VAD check if we have enough samples
-        if buffer_len >= LOOKBACK_SAMPLES {
+        if buffer_len >= self.lookback_samples {
             let energy_all = (self.energy_total / buffer_len as f64) as f32;
-            let energy_last = (self.energy_tail / LOOKBACK_SAMPLES as f64) as f32;
+            let energy_last = (self.energy_tail / self.lookback_samples as f64) as f32;
 
             // Detect silence boundary using energy ratio
-            if energy_last < VAD_THOLD * energy_all {
+            if energy_last < self.vad_thold * energy_all {
                 self.shared
                     .last_sentence_end
                     .fetch_max(buffer_len as u64, Ordering::Release);

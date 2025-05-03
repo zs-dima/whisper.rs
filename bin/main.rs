@@ -65,6 +65,10 @@ async fn main() {
         sample_threshold: config.sample_threshold,
         api_key: config.api_key,
         idle_flush: Duration::from_secs(5),
+        max_buffer_ms: config.max_buffer_ms,
+        max_service_threads: config.max_service_threads,
+        lookback_ms: config.lookback_ms,
+        vad_thold: config.vad_thold,
     });
 
     let whisper_service = Arc::new(WhisperService::new(service_params));
