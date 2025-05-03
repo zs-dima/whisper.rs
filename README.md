@@ -186,6 +186,7 @@ Place Whisper model files in the `models/` directory. Supported formats: `.bin` 
 
 - ✅ Implement lightweight, effective Energy VAD that works in pair with Whisper sentences recognition
 - [ ] Detailed configuration options for VAD, threading, etc
+- [ ] Support audio stream formats (e.g., WAV, MP3, different sample rates, etc)
 - [ ] Add Silero VAD as an option
 - [ ] Provide WebRTC in addition to WebSocket
 - [ ] Add authentication/authorization options
