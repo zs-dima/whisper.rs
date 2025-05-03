@@ -1,7 +1,7 @@
 # Dockerfile (multi-stage for ARM64)
 # 
 # docker build --no-cache --pull -f deploy/Dockerfile -t whisper-rs .
-# docker run --rm -e SERVICE_PORT=3030 -p 3030:3030 -e WHISPER_MODEL_NAME=ggml-base.en-q5_1.bin whisper-rs
+# docker run --rm -e WS_PORT=3030 -p 3030:3030 -e WHISPER_MODEL_NAME=ggml-base.en-q5_1.bin whisper-rs
 # docker run -it --entrypoint /bin/bash whisper-rs
 # which whisper-server
 # ls -l /usr/local/bin/whisper-server
@@ -66,7 +66,7 @@ RUN chmod +x /entrypoint.sh
 COPY --from=builder /app/target/release/whisper-server /bin/whisper-server
 
 # Expose WebSocket port (example 3030)
-ENV SERVICE_PORT=3030
+ENV WS_PORT=3030
 EXPOSE 3030
 
 # Entrypoint handles model download and runs app

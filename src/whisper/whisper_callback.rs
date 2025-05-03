@@ -5,7 +5,7 @@ use tokio::sync::mpsc;
 use whisper_rs::FullParams;
 use whisper_rs::whisper_rs_sys;
 
-use crate::service::shared_state::shared_state::{CppCallbackData, SharedState, Transcript};
+use crate::service::engine::shared_state::{CppCallbackData, SharedState, Transcript};
 
 /// Safe wrapper around Whisper C API callback data
 pub struct WhisperCallback {

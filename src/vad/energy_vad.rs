@@ -1,9 +1,6 @@
 use std::sync::{Arc, atomic::Ordering};
 
-use crate::service::shared_state::shared_state::SharedState;
-
-/// Constants for Voice Activity Detection
-pub const SAMPLE_RATE: usize = 16_000; // Hz
+use crate::service::engine::shared_state::SharedState;
 
 /// Voice Activity Detector using energy-based algorithm
 pub struct EnergyVad {

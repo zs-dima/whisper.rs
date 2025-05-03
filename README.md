@@ -75,24 +75,29 @@ A high-performance Rust implementation of OpenAI's Whisper live streaming speech
 
 Configuration is managed via environment variables. Defaults are provided for all options.
 
-| Variable             | Description                        | Default                        |
-|----------------------|------------------------------------|--------------------------------|
-| `PORT`               | Server port                        | `3030`                         |
-| `API_KEY`            | API key for WebSocket auth         |                                |
-| `WHISPER_MODEL_NAME` | Path to Whisper model file nme     | `ggml-base.en-q5_1.bin`        |
-| `WHISPER_MODEL_URL`  | URL to Whisper a model             |  [ggml-base.en-q5_1.bin](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin?download=true)          |
-| `WHISPER_THREADS`    | Number of inference threads        | `min(4, num_cpus)`             |
-| `SAMPLE_THRESHOLD`   | Min samples before flush (silence) | `64000` (4s at 16kHz)          |
-| `MAX_BUFFER_MS`      | Max audio buffer size in ms before forced flush | `24000` (24s)         |
-| `MAX_SERVICE_THREADS`| Max concurrent Whisper jobs        | `4`                            |
-| `LOOKBACK_MS`        | VAD lookback window in ms          | `200`                          |
-| `VAD_THOLD`          | VAD silence threshold (0.0–1.0)    | `0.35`                         |
+| Variable                | Description                        | Default                        |
+|-------------------------|------------------------------------|--------------------------------|
+| `WS_PORT`               | Service WebSoket port              | `3030`                         |
+| `API_KEY`               | API key for WebSocket auth         |                                |
+| `CONNECTION_THREADS`    | Max concurrent jobs per connection | `4`                            |
+| `WHISPER_MODEL_NAME`    | Whisper model name                 | `ggml-base.en-q5_1.bin`        |
+| `WHISPER_MODEL_URL`     | URL to Whisper a model             |  [ggml-base.en-q5_1.bin](https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en-q5_1.bin?download=true)          |
+| `WHISPER_MIN_BUFFER_MS` | Min audio buffer size in ms for transcription | `4000` (4s)         |
+| `WHISPER_MAX_BUFFER_MS` | Max audio buffer size in ms for transcription | `24000` (24s)       |
+| `WHISPER_LOOKBACK_MS`   | Whisper lookback window in ms      | `350`                          |
+| `WHISPER_THREADS`       | Number of inference threads        | `min(4, num_cpus)`             |
+| `IDLE_FLUSH_MS`         | Last chunk flush time in ms        | `5000`                         |
+| `VAD_LOOKBACK_MS`       | VAD lookback window in ms          | `200`                          |
+| `VAD_THOLD`             | VAD silence threshold (0.0–1.0)    | `0.35`                         |
+     
 
 Descriptions:
-- `SAMPLE_THRESHOLD`: Minimum number of audio samples chunk for transcription. Minimum is 1 second (16000 samples at 16kHz).
-- `MAX_BUFFER_MS`: Maximum audio buffer size in milliseconds before a forced flush occurs to prevent memory overuse.
-- `MAX_SERVICE_THREADS`: Maximum number of concurrent Whisper inference jobs allowed (limits CPU usage).
-- `LOOKBACK_MS`: The window size in milliseconds for the energy-based VAD to determine recent speech activity.
+- `WHISPER_MIN_BUFFER_MS`: Minimum audio buffer size in milliseconds for transcription. Bufer size have to be more than 1 second (16000 samples at 16kHz) for Whisper to work properly.
+- `WHISPER_MAX_BUFFER_MS`: Maximum audio buffer size in milliseconds before a forced flush occurs to prevent memory overuse.
+- `WHISPER_LOOKBACK_MS`: The lookback window in milliseconds for Whisper to process audio data. It can improve recognition accuracy on sentence boundaries.
+- `WHISPER_THREADS`: Maximum number of concurrent Whisper inference jobs allowed (limits CPU usage).
+- `IDLE_FLUSH_MS`: The time in milliseconds to wait before the last chunk transcription.
+- `VAD_LOOKBACK_MS`: The window size in milliseconds for the energy-based VAD to determine recent speech activity.
 - `VAD_THOLD`: The threshold ratio (0.0–1.0) for VAD to detect silence; lower values make VAD more sensitive to silence.
 
 Example:
@@ -101,7 +106,7 @@ $env:PORT=8080
 $env:API_KEY="your-secret-key"
 $env:WHISPER_MODEL_NAME="ggml-base.en-q5_1.bin"
 $env:WHISPER_THREADS=4
-$env:SAMPLE_THRESHOLD=32000
+$env:WHISPER_MIN_BUFFER_MS=4000
 ```
 
 ---
@@ -184,7 +189,7 @@ Place Whisper model files in the `models/` directory. Supported formats: `.bin` 
 
 ## Roadmap
 
-- ✅ Implement lightweight, effective Energy VAD that works in pair with Whisper sentences recognition
+✅ Implement lightweight, effective Energy VAD that works in pair with Whisper sentences recognition
 - [ ] Detailed configuration options for VAD, threading, etc
 - [ ] Support audio stream formats (e.g., WAV, MP3, different sample rates, etc)
 - [ ] Add Silero VAD as an option

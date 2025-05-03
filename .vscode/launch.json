@@ -23,7 +23,7 @@
             "args": [],
             "env": {
                 "RUST_BACKTRACE": "full",
-                "SERVICE_PORT": "3030"
+                "WS_PORT": "3030"
             },
             "cwd": "${workspaceFolder}"
         },
@@ -46,7 +46,7 @@
             "args": [],
             "env": {
                 "RUST_BACKTRACE": "full",
-                "SERVICE_PORT": "3030"
+                "WS_PORT": "3030"
             },
             "cwd": "${workspaceFolder}"
         }

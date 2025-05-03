@@ -5,7 +5,7 @@ use std::{
 use tokio::sync::mpsc::{self, error::TrySendError};
 use whisper_rs::whisper_rs_sys;
 
-use crate::service::shared_state::shared_state::{CppCallbackData, Transcript};
+use crate::service::engine::shared_state::{CppCallbackData, Transcript};
 
 /// Helper functions for safer C API interactions
 pub struct WhisperHelper;

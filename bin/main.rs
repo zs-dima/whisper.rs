@@ -1,8 +1,10 @@
 use axum::extract::ws::WebSocketUpgrade;
 use axum::extract::{Query, State};
-use whisper::config::service_params::ServiceParams;
+use whisper::service::config::service_params::ServiceParams;
 use whisper::whisper::whisper_config::WhisperConfig;
-use whisper::{config::service_config::ServiceConfig, service::whisper_service::WhisperService};
+use whisper::{
+    service::config::service_config::ServiceConfig, service::whisper_service::WhisperService,
+};
 
 use axum::{Router, routing::get, serve};
 use std::collections::HashMap;
@@ -39,16 +41,16 @@ async fn main() {
 
     // Create Whisper context
     // TODO: Default::default() from config
-    let model_path = format!("models/{}", config.model_name);
+    let model_path = format!("models/{}", config.whisper_model_name);
     let whisper_ctx = WhisperContext::new_with_params(&model_path, Default::default())
         .expect("Failed to create WhisperContext");
-    tracing::info!("Whisper model {} loaded", config.model_name);
+    tracing::info!("Whisper model {} loaded", config.whisper_model_name);
 
     // Create a params object for running the Whisper model.
     let whisper_cfg = WhisperConfig {
         // The number of past samples to consider defaults to 1.
         sampling_strategy: SamplingStrategy::Greedy { best_of: 1 },
-        n_threads: config.threads.map(|t| t as i32),
+        n_threads: config.whisper_threads.map(|t| t as i32),
         translate: false, // Enable translation.
         language: None,   // Set the language to translate to to English.
         // Disable anything that prints to stdout.
@@ -60,14 +62,17 @@ async fn main() {
     };
 
     let service_params = Arc::new(ServiceParams {
+        api_key: config.api_key,
+        connection_threads: config.connection_threads,
+        idle_flush: Duration::from_millis(config.idle_flush_ms as u64),
+
         whisper_ctx: whisper_ctx,
         whisper_cfg: whisper_cfg,
-        sample_threshold: config.sample_threshold,
-        api_key: config.api_key,
-        idle_flush: Duration::from_secs(5),
-        max_buffer_ms: config.max_buffer_ms,
-        max_service_threads: config.max_service_threads,
-        lookback_ms: config.lookback_ms,
+        whisper_min_buffer_ms: config.whisper_min_buffer_ms,
+        whisper_max_buffer_ms: config.whisper_max_buffer_ms,
+        whisper_lookback_ms: config.whisper_lookback_ms,
+
+        vad_lookback_ms: config.vad_lookback_ms,
         vad_thold: config.vad_thold,
     });
 
