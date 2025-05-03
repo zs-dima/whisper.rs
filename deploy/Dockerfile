@@ -23,10 +23,19 @@ COPY src /app/src
 COPY bin /app/bin
 
 # Build the application in release mode
-RUN cargo build --release
+# Set target triple based on Docker Buildx platform
+ARG TARGETPLATFORM
+RUN case "${TARGETPLATFORM}" in \
+    "linux/amd64")   export TARGET_TRIPLE="x86_64-unknown-linux-gnu" ;; \
+    "linux/arm64")   export TARGET_TRIPLE="aarch64-unknown-linux-gnu" ;; \
+    *)               echo "Unsupported TARGETPLATFORM: ${TARGETPLATFORM}" && exit 1 ;; \
+    esac && \
+    rustup target add ${TARGET_TRIPLE} && \
+    cargo build --release --target=${TARGET_TRIPLE} && \
+    cp /app/target/${TARGET_TRIPLE}/release/whisper-server /app/target/release/whisper-server
 
 # 2. Runtime stage: minimal image for running
-FROM --platform=$TARGETPLATFORM ubuntu:25.04 AS runtime
+FROM ubuntu:25.04 AS runtime
 
 # (Optionally install libffi for whisper-rs if required at runtime)
 RUN apt-get update && apt-get install -y --no-install-recommends \
