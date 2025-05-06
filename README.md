@@ -130,9 +130,19 @@ The server will start and listen on the configured port (default: 3030).
 
 ### WebSocket Transcription
 
-- **Endpoint:** `/ws?api-key=YOUR_API_KEY`
+- **Endpoint:** `/ws?api-key=YOUR_API_KEY[&format=f32|i16]`
 - **Protocol:** WebSocket
-- **Audio Format:** Little-endian `f32` PCM, 16kHz, mono, streamed as binary frames
+- **Audio Format:** `f32` (default) or `i16`
+
+#### Supported Audio Formats
+
+- `f32` (default): 32-bit float PCM, little-endian, 16kHz, mono
+- `i16`: 16-bit signed integer PCM, little-endian, 16kHz, mono
+
+Specify the format using the `format` query parameter, e.g.:
+```
+ws://localhost:3030/ws?format=i16&api-key=YOUR_API_KEY
+```
 
 #### Example WebSocket Session
 

@@ -61,13 +61,19 @@ impl WhisperService {
         {
             return (axum::http::StatusCode::UNAUTHORIZED, "Bad API key").into_response();
         }
-        ws.on_upgrade(move |sock| this.handle_socket(sock))
+        // Determine audio format (default: f32)
+        let format = q
+            .get("format")
+            .map(|s| s.as_str())
+            .unwrap_or("f32")
+            .to_lowercase();
+        ws.on_upgrade(move |sock| this.handle_socket(sock, format))
     }
 
     /// Main handler for a websocket connection.
     /// Handles audio streaming, VAD, and transcription.
-    async fn handle_socket(self: Arc<Self>, socket: WebSocket) {
-        tracing::info!("WebSocket: client connected");
+    async fn handle_socket(self: Arc<Self>, socket: WebSocket, format: String) {
+        tracing::info!("WebSocket: client connected {}", format);
         let (mut sender, mut receiver) = socket.split();
 
         let shared = Arc::new(SharedState::new());
@@ -115,32 +121,64 @@ impl WhisperService {
                         match msg {
                             Some(Ok(Message::Binary(buf))) => {
                                 // --- Audio Decoding Safety ---
-                                // Assumes input is 16kHz mono, 32-bit float, little-endian PCM.
-                                // If the input is not a multiple of 4 bytes, ignore the trailing bytes and log a warning.
+                                // Supports input as 16kHz mono, either 32-bit float (f32, 4 bytes/sample, little-endian) or 16-bit signed integer (i16, 2 bytes/sample, little-endian).
                                 // let mut incomplete = false;
-                                for chunk in buf.chunks_exact(4) {
-                                    // Safe conversion: skip malformed chunks
-                                    let arr: [u8; 4] = match chunk.try_into() {
-                                        Ok(arr) => arr,
-                                        Err(_) => {
-                                            tracing::warn!("Malformed audio chunk (expected 4 bytes)");
-                                            continue;
+                                match format.as_str() {
+                                    "f32" => {
+                                        for chunk in buf.chunks_exact(4) {
+                                            // Safe conversion: skip malformed chunks
+                                            let arr: [u8; 4] = match chunk.try_into() {
+                                                Ok(arr) => arr,
+                                                Err(_) => {
+                                                    tracing::warn!("Malformed audio chunk (expected 4 bytes)");
+                                                    continue;
+                                                }
+                                            };
+                                            let s = f32::from_le_bytes(arr);
+                                            let old_sample_energy = if ring.len() >= vad_lookback_samples {
+                                                let idx = ring.len() - vad_lookback_samples;
+                                                Some(ring[idx].abs() as f64)
+                                            } else {
+                                                None
+                                            };
+                                            ring.push_back(s);
+                                            vad.process_sample(s, ring.len(), old_sample_energy);
                                         }
-                                    };
-                                    let s = f32::from_le_bytes(arr);
-                                    let old_sample_energy = if ring.len() >= vad_lookback_samples {
-                                        let idx = ring.len() - vad_lookback_samples;
-                                        Some(ring[idx].abs() as f64)
-                                    } else {
-                                        None
-                                    };
-                                    ring.push_back(s);
-                                    vad.process_sample(s, ring.len(), old_sample_energy);
+                                        if buf.len() % 4 != 0 {
+                                            // incomplete = true;
+                                            tracing::warn!("Received audio buffer with incomplete trailing bytes ({} bytes)", buf.len() % 4);
+                                        }
+                                    }
+                                    "i16" => {
+                                        for chunk in buf.chunks_exact(2) {
+                                            let arr: [u8; 2] = match chunk.try_into() {
+                                                Ok(arr) => arr,
+                                                Err(_) => {
+                                                    tracing::warn!("Malformed audio chunk (expected 2 bytes)");
+                                                    continue;
+                                                }
+                                            };
+                                            let s = i16::from_le_bytes(arr) as f32 / 32768.0;
+                                            let old_sample_energy = if ring.len() >= vad_lookback_samples {
+                                                let idx = ring.len() - vad_lookback_samples;
+                                                Some(ring[idx].abs() as f64)
+                                            } else {
+                                                None
+                                            };
+                                            ring.push_back(s);
+                                            vad.process_sample(s, ring.len(), old_sample_energy);
+                                        }
+                                        if buf.len() % 2 != 0 {
+                                            // incomplete = true;
+                                            tracing::warn!("Received audio buffer with incomplete trailing bytes ({} bytes)", buf.len() % 2);
+                                        }
+                                    }
+                                    other => {
+                                        tracing::error!("Unsupported audio format: {other}. Supported: f32 (default), i16");
+                                        break;
+                                    }
                                 }
-                                if buf.len() % 4 != 0 {
-                                    // incomplete = true;
-                                    tracing::warn!("Received audio buffer with incomplete trailing bytes ({} bytes)", buf.len() % 4);
-                                }
+
                                 // --- VAD and Buffer Management ---
                                 let cb_idx = shared_r.last_sentence_end.swap(0, Ordering::Acquire) as usize;
                                 let boundary = if cb_idx >= min_buffer_samples { cb_idx } else { 0 };
